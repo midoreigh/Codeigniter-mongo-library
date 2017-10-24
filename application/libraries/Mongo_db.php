@@ -6,12 +6,11 @@
 * A library to interface with the NoSQL database MongoDB. For more information see http://www.mongodb.org
 *
 * @package CodeIgniter
-* @author Intekhab Rizvi | www.intekhab.in | me@intekhab.in
-* @copyright Copyright (c) 2014, Intekhab Rizvi.
+* @author Mido Reigh | midoreigh.com | me@midoreigh.com
+* @copyright Copyright (c) 2018, Mido Reigh.
 * @license http://www.opensource.org/licenses/mit-license.php
-* @link http://intekhab.in
-* @version Version 1.0
-* Thanks to Alex Bilbie (http://alexbilbie.com) for help.
+* @link https://midoreigh.com/cimongodb
+* @version Version 1.9
 */
 
 Class Mongo_db{
@@ -54,7 +53,7 @@ Class Mongo_db{
 	function __construct($param)
 	{
 
-		if ( ! class_exists('Mongo') && ! class_exists('MongoClient'))
+		if ( ! class_exists('MongoDB\Driver\Manager'))
 		{
 			show_error("The MongoDB PECL extension has not been installed or enabled", 500);
 		}
@@ -63,21 +62,6 @@ Class Mongo_db{
 		$this->config = $this->CI->config->item('mongo_db');
 		$this->param = $param;
 		$this->connect();
-	}
-
-	/**
-	* --------------------------------------------------------------------------------
-	* Class Destructor
-	* --------------------------------------------------------------------------------
-	*
-	* Close all open connections.
-	*/
-	function __destruct()
-	{
-		if(is_object($this->connect))
-		{
-			$this->connect->close();
-		}
 	}
 
 	/**
@@ -124,7 +108,7 @@ Class Mongo_db{
 			}
 
 			if(isset($this->config[$this->activate]['no_auth']) == FALSE
-			   && empty($this->config[$this->activate]['username']))
+				&& empty($this->config[$this->activate]['username']))
 			{
 				show_error("Username missing from mongodb config group : {$this->activate}", 500);
 			}
@@ -134,7 +118,7 @@ Class Mongo_db{
 			}
 
 			if(isset($this->config[$this->activate]['no_auth']) == FALSE 
-			   && empty($this->config[$this->activate]['password']))
+				&& empty($this->config[$this->activate]['password']))
 			{
 				show_error("Password missing from mongodb config group : {$this->activate}", 500);
 			}
@@ -170,9 +154,9 @@ Class Mongo_db{
 				$this->write_concerns = $this->config[$this->activate]['write_concerns'];
 			}
 
-			if(empty($this->config[$this->activate]['journal']))
+			if(empty($this->config[$this->activate]['bypass_document_validation']))
 			{
-				$this->journal = TRUE;
+				$this->bypass_document_validation = FALSE;
 			}
 			else
 			{
@@ -216,11 +200,22 @@ Class Mongo_db{
 			{
 				$options = array('username'=>$this->username, 'password'=>$this->password);
 			}
-			$this->connect = new MongoClient($dns, $options);
-			$this->db = $this->connect->selectDB($this->database);
-			$this->db = $this->connect->{$this->database};
+			$this->connect = new MongoDB\Client($dns, $options);
+			$this->db = $this->connect->selectDatabase($this->database);
 		}
-		catch (MongoConnectionException $e)
+		catch (MongoDB\Exception\InvalidArgumentException $e)
+		{
+			if(isset($this->debug) == TRUE && $this->debug == TRUE)
+			{
+				show_error("Invalid Argument Exception: {$e->getMessage()}", 500);
+			}
+			else
+			{
+				show_error("Invalid Argument Exception", 500);
+			}
+		}
+		//for other errors at the driver level (e.g. connection errors).
+		catch (MongoDB\Driver\Exception\RuntimeException $e)
 		{
 			if(isset($this->debug) == TRUE && $this->debug == TRUE)
 			{
@@ -256,16 +251,22 @@ Class Mongo_db{
 
 		try
 		{
-			$this->db->{$collection}->insert($insert, array('w' => $this->write_concerns, 'j'=>$this->journal));
-			if (isset($insert['_id']))
+			// TODO
+			//Implement all options for insertOne
+
+			$insert_result = $this->db->{$collection}->insertOne($insert, array('bypassDocumentValidation'=>$this->bypass_document_validation));
+
+			if ($insert_result->getInsertedId() !== null)
 			{
-				return ($insert['_id']);
+				return ($insert_result->getInsertedId());
 			}
 			else
 			{
 				return (FALSE);
 			}
 		}
+		// TODO
+		// Catch Real exceptions
 		catch (MongoCursorException $e)
 		{
 			if(isset($this->debug) == TRUE && $this->debug == TRUE)
@@ -304,12 +305,12 @@ Class Mongo_db{
 			$this->db->{$collection}->batchInsert($insert, array('w' => $this->write_concerns, 'j'=>$this->journal));
 			if(is_array($insert) && count($insert) > 0)
 			{
-			    $insert_ids = array_map(function ($arr) {return $arr['_id'];},$insert);
-			    return ($insert_ids);
+				$insert_ids = array_map(function ($arr) {return $arr['_id'];},$insert);
+				return ($insert_ids);
 			}
 			else 
 			{
-			    return (FALSE);
+				return (FALSE);
 			}
 		}
 		catch (MongoCursorException $e)
@@ -774,28 +775,31 @@ Class Mongo_db{
 		{
 			show_error("In order to retrieve documents from MongoDB, a collection name must be passed", 500);
 		}
-		try{	
+		try{
+			// TODO
+			// Implement all options
+			$options = array(
+				"projection" => $this->selects,
+				"limit" => (int) $this->limit,
+				"skip" => (int) $this->offset,
+				"sort" => $this->sorts
+			);
 			$documents = $this->db->{$collection}
-			->find($this->wheres, $this->selects)
-			->limit((int) $this->limit)
-			->skip((int) $this->offset)
-			->sort($this->sorts);
-			$this->explain($documents, $collection);
-			// Clear
-			$this->_clear();
-			$returns = array();
-			
-			while ($documents->hasNext())
-			{
+			->find($this->wheres, $options);
+
+			$returns = null;
+
+			foreach ($documents as $document) {
 				if ($this->return_as == 'object')
 				{
-					$returns[] = (object) $documents->getNext();	
+					$returns[] = (object) $document;	
 				}
 				else
 				{
-					$returns[] = (array) $documents->getNext();
+					$returns[] = (array) $document;
 				}
 			}
+
 			if ($this->return_as == 'object')
 			{
 				return (object)$returns;
@@ -805,6 +809,8 @@ Class Mongo_db{
 				return $returns;
 			}
 		}
+		// TODO
+		// Catch real exception
 		catch (MongoCursorException $e)
 		{
 			if(isset($this->debug) == TRUE && $this->debug == TRUE)
@@ -859,7 +865,14 @@ Class Mongo_db{
 
 		try{
 
-			$document = $this->db->{$collection}->findOne($this->wheres, $this->selects);
+			// TODO
+			// add more options
+
+			$options = array(
+				"projection" => $this->selects
+			);
+
+			$document = $this->db->{$collection}->findOne($this->wheres, $options);
 			// Clear
 			$this->_clear();
 			if(is_null($document))
@@ -878,6 +891,8 @@ Class Mongo_db{
 				}
 			}
 		}
+		// TODO
+		// Catch real exceptions
 		catch (MongoCursorException $e)
 		{
 			if(isset($this->debug) == TRUE && $this->debug == TRUE)
@@ -906,7 +921,15 @@ Class Mongo_db{
 		{
 			show_error("In order to retrieve a count of documents from MongoDB, a collection name must be passed", 500);
 		}
-		$count = $this->db->{$collection}->find($this->wheres)->limit((int) $this->limit)->skip((int) $this->offset)->count();
+
+		$options = array(
+			"limit" => (int) $this->limit,
+			"skip" => (int) $this->offset
+		);
+
+		$count = $this->db->{$collection}
+		->count($this->wheres, $options);
+
 		$this->_clear();
 		return ($count);
 	}
@@ -932,7 +955,7 @@ Class Mongo_db{
 		{
 			foreach ($fields as $field => $value)
 			{
-			$this->updates['$set'][$field] = $value;
+				$this->updates['$set'][$field] = $value;
 			}
 		}
 		return $this;
@@ -1235,7 +1258,7 @@ Class Mongo_db{
 	*
 	* @usage: $this->mongo_db->update('foo', $data = array());
 	*/
-	public function update($collection = "", $options = array())
+	public function update($collection = "", $update = array())
 	{
 		if (empty($collection))
 		{
@@ -1244,8 +1267,11 @@ Class Mongo_db{
 
 		try
 		{
-			$options = array_merge(array('w' => $this->write_concerns, 'j'=>$this->journal, 'multiple' => FALSE), $options);
-			$this->db->{$collection}->update($this->wheres, $this->updates, $options);
+			// TODO
+			// Implement options
+			// $options = array_merge(array('w' => $this->write_concerns, 'j'=>$this->journal, 'multiple' => FALSE), $options);
+
+			$this->db->{$collection}->updateOne($this->wheres, $this->updates);
 			$this->_clear();
 			return (TRUE);
 		}
@@ -1287,8 +1313,9 @@ Class Mongo_db{
 		}
 		try
 		{
-			$options = array_merge(array('w' => $this->write_concerns, 'j'=>$this->journal, 'multiple' => TRUE), $options);
-			$this->db->{$collection}->update($this->wheres, $this->updates, $options);
+			// TODO
+			// Include options
+			$this->db->{$collection}->updateMany($this->wheres, $this->updates);
 			$this->_clear();
 			return (TRUE);
 		}
@@ -1310,7 +1337,7 @@ Class Mongo_db{
 	* //! Delete
 	* --------------------------------------------------------------------------------
 	*
-	* delete document from the passed collection based upon certain criteria
+	* delete one document from the passed collection based upon certain criteria
 	*
 	* @usage : $this->mongo_db->delete('foo');
 	*/
@@ -1322,7 +1349,7 @@ Class Mongo_db{
 		}
 		try
 		{
-			$this->db->{$collection}->remove($this->wheres, array('w' => $this->write_concerns, 'j'=>$this->journal, 'justOne' => TRUE));
+			$this->db->{$collection}->deleteOne($this->wheres);
 			$this->_clear();
 			return (TRUE);
 		}
@@ -1361,7 +1388,7 @@ Class Mongo_db{
 		}*/
 		try
 		{
-			$this->db->{$collection}->remove($this->wheres, array('w' => $this->write_concerns, 'j'=>$this->journal, 'justOne' => FALSE));
+			$this->db->{$collection}->deleteMany($this->wheres);
 			$this->_clear();
 			return (TRUE);
 		}
@@ -1389,21 +1416,21 @@ Class Mongo_db{
 	*/
 	public function aggregate($collection, $operation)
 	{
-        if (empty($collection))
-	 	{
-	 		show_error("In order to retreive documents from MongoDB, a collection name must be passed", 500);
-	 	}
- 		
- 		if (empty($operation) && !is_array($operation))
-	 	{
-	 		show_error("Operation must be an array to perform aggregate.", 500);
-	 	}
+		if (empty($collection))
+		{
+			show_error("In order to retreive documents from MongoDB, a collection name must be passed", 500);
+		}
 
-	 	try
-	 	{
-	 		$documents = $this->db->{$collection}->aggregate($operation);
-	 		$this->_clear();
-	 		if ($this->return_as == 'object')
+		if (empty($operation) && !is_array($operation))
+		{
+			show_error("Operation must be an array to perform aggregate.", 500);
+		}
+
+		try
+		{
+			$documents = $this->db->{$collection}->aggregate($operation);
+			$this->_clear();
+			if ($this->return_as == 'object')
 			{
 				return (object)$documents;
 			}
@@ -1411,8 +1438,8 @@ Class Mongo_db{
 			{
 				return $documents;
 			}
-	 	}
-	 	catch (MongoResultException $e)
+		}
+		catch (MongoResultException $e)
 		{
 			if(isset($this->debug) == TRUE && $this->debug == TRUE)
 			{
@@ -1423,7 +1450,7 @@ Class Mongo_db{
 				show_error("Aggregation operation failed.", 500);
 			}
 		}
-    }
+	}
 
 	/**
 	* --------------------------------------------------------------------------------
@@ -1440,7 +1467,7 @@ Class Mongo_db{
 	{
 		foreach ($fields as $col => $val)
 		{
-		if ($val == -1 || $val === FALSE || strtolower($val) == 'desc')
+			if ($val == -1 || $val === FALSE || strtolower($val) == 'desc')
 			{
 				$this->sorts[$col] = -1;
 			}
@@ -1466,11 +1493,11 @@ Class Mongo_db{
 	{
 		if ( $stamp == FALSE )
 		{
-			return new MongoDate();
+			return new MongoDB\BSON\UTCDateTime();
 		}
 		else
 		{
-			return new MongoDate($stamp);
+			return new MongoDB\BSON\UTCDateTime($stamp);
 		}
 		
 	}
@@ -1537,8 +1564,8 @@ Class Mongo_db{
         * @return object or array
 	*/
 	
-        public function command($collection, $command = array())
-        {
+	public function command($collection, $command = array())
+	{
 		if (empty($collection))
 		{
 			show_error("No Mongo collection specified to run command", 500);
@@ -1549,11 +1576,11 @@ Class Mongo_db{
 			show_error("no command were specified", 500);
 		}
 		
-                try
-                {
-                        $returns = $this->db->{$collection}->command($query);
+		try
+		{
+			$returns = $this->db->{$collection}->command($query);
 			
-                        if ($this->return_as == 'object')
+			if ($this->return_as == 'object')
 			{
 				return (object)$returns;
 			}
@@ -1561,9 +1588,9 @@ Class Mongo_db{
 			{
 				return $returns;
 			}
-                }
+		}
 
-                catch (MongoCursorException $e)
+		catch (MongoCursorException $e)
 		{
 			if(isset($this->debug) == TRUE && $this->debug == TRUE)
 			{
@@ -1574,7 +1601,7 @@ Class Mongo_db{
 				show_error("Command failed.", 500);
 			}
 		}
-        }
+	}
 
 
 	/**
@@ -1821,14 +1848,14 @@ Class Mongo_db{
 	{
 		array_push($this->benchmark, 
 			array(
-					'benchmark'=>$cursor->explain(),
-					'query'=> array(
-							'collection'=>$collection, 
-							'select'=>$this->selects,
-							'update'=>$this->updates, 
-							'where'=>$this->wheres, 
-							'sort'=>$this->sorts)
-				)
+				'benchmark'=>$cursor->explain(),
+				'query'=> array(
+					'collection'=>$collection, 
+					'select'=>$this->selects,
+					'update'=>$this->updates, 
+					'where'=>$this->wheres, 
+					'sort'=>$this->sorts)
+			)
 		);
 	}
 }

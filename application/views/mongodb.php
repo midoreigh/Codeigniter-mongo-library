@@ -63,21 +63,48 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 		border: 1px solid #D0D0D0;
 		box-shadow: 0 0 8px #D0D0D0;
 	}
-	</style>
+</style>
 </head>
 <body>
 
-<div id="container">
-	<h1>Mongodb test page</h1>
+	<div id="container">
+		<h1>Mongodb test page</h1>
 
-	<div id="body">
+		<div id="body">
 
-		<p></p>
-		<code></code>
+			<p>MongoDB insert</p>
+			<code><?= $insert ?></code>
+		</div>
+
+		<div id="body">
+
+			<p>MongoDB select</p>
+			<code><?= $users ?></code>
+		</div>
+
+		<div id="body">
+
+			<p>MongoDB findOne</p>
+			<code><?= $oneuser ?></code>
+		</div>
+		<div id="body">
+
+			<p>MongoDB cont</p>
+			<code><?= $count ?></code>
+		</div>
+		<div id="body">
+
+			<p>MongoDB distinct</p>
+			<code><?= $distinct ?></code>
+		</div>
+		<div id="body">
+
+			<p>MongoDB update</p>
+			<code><?= $update ?></code>
+		</div>
+
+		<p class="footer">Page rendered in <strong>{elapsed_time}</strong> seconds. <?php echo  (ENVIRONMENT === 'development') ?  'CodeIgniter Version <strong>' . CI_VERSION . '</strong>' : '' ?></p>
 	</div>
-
-	<p class="footer">Page rendered in <strong>{elapsed_time}</strong> seconds. <?php echo  (ENVIRONMENT === 'development') ?  'CodeIgniter Version <strong>' . CI_VERSION . '</strong>' : '' ?></p>
-</div>
 
 </body>
 </html>
